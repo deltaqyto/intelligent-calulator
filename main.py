@@ -40,6 +40,15 @@ class BaseItem:
         else:
             self.unknown_params[token] = value
 
+    def insert_token(self, token, value):
+        token = self.de_alias(token)
+        if token in self.parameters + self.private_params:
+            if value is not self.matched_params[token]:
+                self.matched_params[token] += [value]
+        else:
+            if value is not self.unknown_params[token]:
+                self.unknown_params[token] += [value]
+
     def de_alias(self, parameter):
         return self.aliases.get(parameter, parameter)
 
@@ -153,16 +162,18 @@ class BaseItem:
         return f"{self.type}(target={self.target}, args={self.digest(silent=True)})"
 
     def combine(self, member):
-        new_pair = (member.type, 1)
-        if new_pair not in self.combine_pairs:
+        if member.type not in self.combine_pairs:
             print(f"Member {member.type} is not compatible with {self.type}")
             return None
-        out_object = self.combine_pairs[new_pair](parents=(self, member))
+        out_object = self.combine_pairs[member.type](parents=(self, member))
         return out_object
 
     def custom_combine_intro(self, parents):
-        if not parents or parents is None:
+        if not parents:
             print(f"No parents were provided to {self.type}")
+
+    def default_combine(self, parents=()):
+        self.custom_combine_intro(parents)
 
 
 
@@ -173,32 +184,33 @@ class MultiVector(BaseItem):
         self.parameters = ["res"]
         self.private_params = ["x", "y", "mag", "dr"]
         self.aliases = {"resultant": "res"}
-        self.combine_pairs = {("Vector", 1): self.vector_combine, ("MultiVector", 1): self.multivector_combine}
+        self.combine_pairs = {"Vector": self.vector_combine, "MultiVector": self.multivector_combine}
 
         self.solutions = {
-            "res": {frozenset(["x", "y"]): lambda in_args: Vector(args={"x": sum(in_args["x"]), "y": sum(in_args["y"])})
+            "res": {frozenset(["x", "y"]): lambda in_args: self.debug(in_args)
                     }}
 
         self.finish_init()
 
-    def multivector_combine(self, parents=None):
+    def multivector_combine(self, parents=()):
         self.custom_combine_intro(parents)
         for parent in parents:
-            parent_params = parent.parameters + parent.private_params
-            for param in self.parameters + self.private_params:
-                self.matched_params[param] = parent_params[param]
-
-    def vector_combine(self, parents=None):
-        self.custom_combine_intro(parents)
-        print(self.type)
-        for parent in parents:
-            parent_params = parent.matched_params
-            print(parent_params, self.matched_params)
+            digest = parent.digest()
             for param in self.private_params:
-                print(param)
-                self.matched_params[param] = parent_params[param]
+                self.insert_token(param, digest[param])
 
+    def vector_combine(self, parents=()):
+        self.custom_combine_intro(parents)
+        for parent in parents:
+            digest = parent.digest()
+            for param in self.private_params:
+                self.insert_token(param, digest[param])
 
+    def debug(self, in_args):
+        return Vector(
+            args={"x": sum(in_args["x"]),
+                  "y": sum(in_args["y"])})
+    
 class Vector(BaseItem):
     def __init__(self, parents=None, args=None, target=None):
         super().__init__(parents=parents, args=args, target=target)
@@ -206,7 +218,7 @@ class Vector(BaseItem):
         self.parameters = ["x", "y", "mag", "dr"]
         self.aliases = {"rise": "y", "run": "x", "h": "mag", "hyp": "mag", "deg": "dr", "d": "dr"}
 
-        self.combine_pairs = {("Vector", 1): MultiVector}
+        self.combine_pairs = {"Vector": MultiVector}
 
         self.solutions = {
             "x": {frozenset(["y", "mag"]): lambda in_args: (in_args["mag"] ** 2 - in_args["y"] ** 2) ** 0.5,
@@ -252,9 +264,9 @@ class SingleAcc(BaseItem):
 
             "t": {frozenset(["v", "u", "a"]): lambda in_args: (in_args["v"] - in_args["u"]) / in_args["a"],
                   frozenset(["v", "u", "s"]): lambda in_args: 2 * in_args["s"] / (in_args["u"] + in_args["v"]),
-                  frozenset(["v", "a", "s"]): lambda in_args: max((in_args["v"]+(in_args["v"]**2 + 2 * in_args["s"] * in_args["a"])**0.5)/in_args["a"],
+                  frozenset(["v", "a", "s"]): lambda in_args: ((in_args["v"]+(in_args["v"]**2 + 2 * in_args["s"] * in_args["a"])**0.5)/in_args["a"],
                                                                   -(-in_args["v"]+(in_args["v"]**2 + 2 * in_args["s"] * in_args["a"])**0.5)/in_args["a"]),
-                  frozenset(["u", "a", "s"]): lambda in_args: max((-in_args["u"]+(in_args["u"]**2 + 2 * in_args["s"] * in_args["a"])**0.5)/in_args["a"],
+                  frozenset(["u", "a", "s"]): lambda in_args: ((-in_args["u"]+(in_args["u"]**2 + 2 * in_args["s"] * in_args["a"])**0.5)/in_args["a"],
                                                                   -(in_args["u"]+(in_args["u"]**2 + 2 * in_args["s"] * in_args["a"])**0.5)/in_args["a"])},
 
             "s": {frozenset(["v", "u", "t"]): lambda in_args: (in_args["v"] + in_args["u"]) / (2 * in_args["t"]),
@@ -353,14 +365,15 @@ def main():
             new vector 1x -1y
             save v3
             new vector -1x -1y
-            combine v1 v2 v3
+            combine v3 v2
             verify
             res yield mag
+            res
             
             quit          
             
             """.split("\n") if l.strip()]
-    do_faker = False
+    do_faker = True
     while not finished:
         if not do_faker:
             prompt = input(input_prompt if input_prompt is not None else ">: ")
