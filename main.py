@@ -159,7 +159,7 @@ class BaseItem:
         return out_digest
 
     def __repr__(self):
-        return f"{self.type}(target={self.target}, args={self.digest(silent=True)})"
+        return f"{self.type}({f'target={self.target}, ' if self.target is not None else ''}args={self.digest(silent=True)})"
 
     def combine(self, member):
         if member.type not in self.combine_pairs:
@@ -210,7 +210,8 @@ class MultiVector(BaseItem):
         return Vector(
             args={"x": sum(in_args["x"]),
                   "y": sum(in_args["y"])})
-    
+
+
 class Vector(BaseItem):
     def __init__(self, parents=None, args=None, target=None):
         super().__init__(parents=parents, args=args, target=target)
@@ -244,7 +245,7 @@ class SingleAcc(BaseItem):
         self.parameters = ["u", "v", "a", "t", "s"]
         self.aliases = {"start": "u", "finish": "v", "acc": "a", "time": "t", "dist": "s"}
 
-        self.combine_pairs = {("Vector", 1): MultiVector}
+        self.combine_pairs = {}
 
         self.solutions = {
             "v": {frozenset(["u", "a", "t"]): lambda in_args: in_args["u"] + in_args["a"] * in_args["t"],
@@ -399,6 +400,7 @@ def main():
                     if solution is not None:
                         print(solution)
                 state = "in context"
+                print(f"Created {context}")
                 continue
             case ["verify"]:
                 if context is None:
@@ -451,6 +453,7 @@ def main():
             case ["save", name]:
                 if state == "in context":
                     saved_vals[name] = context
+                    print(f"Saved as {name}")
                 else:
                     print("No current object in context")
                 continue
